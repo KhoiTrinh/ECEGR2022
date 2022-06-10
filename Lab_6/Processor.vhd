@@ -85,7 +85,101 @@ architecture holistic of Processor is
 			co: out std_logic);
 	end component adder_subtracter;
 
+	--SIGNAL LIST--
+	signal pcOut: std_logic_vector(31 DOWNTO 0);
+	signal instruction1: std_logic_vector(31 DOWNTO 0);
+	signal WriteCMD1: std_logic;
+	signal immidiatepart: std_logic_vector(31 downto 0);
+	signal signExtend: std_logic_vector(19 downto 0);
+	signal branch: std_logic_vector(1 DOWNTO 0);
+	signal memRead: std_logic;
+	signal memToReg: std_logic;
+	signal aluCtrl: std_logic_vector(4 DOWNTO 0);
+	signal memWrite: std_logic;
+	signal aluSrc: std_logic;
+	signal regWrite: std_logic;
+	signal immGen: std_logic_vector(1 downto 0);
+	signal readData1: std_logic_vector(31 downto 0);
+	signal readData2: std_logic_vector(31 downto 0);
+	signal aluInput2: std_logic_vector(31 downto 0);
+	signal isZero: std_logic;
+	signal aluResult: std_logic_vector(31 downto 0);
+	signal dataMem: std_logic_vector(31 downto 0);
+	signal dataMemMuxoutput: std_logic_vector(31 downto 0);
+	signal dataTemp: std_logic_vector(31 downto 0);
+	signal newDataMemaddress: std_logic_vector(29 downto 0);
+	signal rightAddSum: std_logic_vector(31 downto 0);
+	signal leftAddSum: std_logic_vector(31 downto 0);
+	signal end1: std_logic;
+	signal end2: std_logic;
+	signal end3: std_logic;
+	signal BranchEqNotEq: std_logic;
+	signal finWire: std_logic_vector(31 downto 0);
+	signal branchSel: std_logic_vector(2 downto 0);
+
+
+	
+
 begin
 	-- Add your code here
-end holistic;
+	
+	WriteCMD1 <= '1' WHEN (falling_edge(clock) AND regWrite = '1') ELSE
+	'0';
 
+	--For immidiate select
+	with instruction1(31) select
+	signExtend <= (others => '1') when '1',
+	(others => '0') when others;
+	
+	with immGen select
+	immidiatepart <= (signExtend(19 downto 0) & instruction1(31 downto 20)) when "10", --I-type
+	(signExtend(18 downto 0) & instruction1(31) & instruction1(7) & instruction1(30 downto 25) & instruction1(11 downto 8) & '0') when "01", --B-type
+	(signExtend(19 downto 0) & instruction1(31 downto 25) & instruction1(11 downto 7)) when "11", --S-type
+	(instruction1(31 downto 12) & "000000000000") when others; --U-type/R-type
+	
+	--Branching Logic
+	--10 BEQ
+	--01 BNE
+	branchSel <= isZero & branch;
+	with branchSel select
+	BranchEqNotEq <= '1' When "001",
+	'0' when "101",
+	'1' when "110",
+	'0' when "010",
+	'0' when others;
+	
+
+
+	
+	PC: ProgramCounter PORT MAP (reset, clock, finWire, pcOut);
+
+	InstructionMemory: InstructionRAM PORT MAP (reset, clock, pcOut(31 DOWNTO 2), instruction1);
+	
+	ctrl: Control PORT MAP (clock, instruction1(6 DOWNTO 0), instruction1(14 DOWNTO 12), instruction1(31 DOWNTO 25), branch, memRead, memtoReg, aluCtrl, memWrite, aluSrc, regWrite, immGen);
+	
+	reg: Registers PORT MAP (instruction1(19 DOWNTO 15), instruction1(24 DOWNTO 20), instruction1(11 DOWNTO 7), dataMemMuxoutput, WriteCMD1, readData1, readData2);
+	
+	Reg2AluMUX: BusMux2to1 PORT MAP (aluSrc, readData2, immidiatepart, aluInput2);
+	
+	ALUModule: ALU PORT MAP (readData1, aluInput2, aluCtrl, isZero, aluResult);
+
+	offsetSubtractor: adder_subtracter PORT MAP (aluResult, X"10000000", '1', dataTemp, end3); 
+	
+	newDataMemaddress <= dataTemp(31 downto 2);
+
+	DataMemory: RAM PORT MAP (reset, clock, memRead, memWrite, newDataMemaddress, readData2, dataMem);
+
+	Data2MemMUX: BusMux2to1 PORT MAP (memToReg, aluResult, dataMem, dataMemMuxoutput);
+
+
+
+
+	Adder1: adder_subtracter PORT MAP (pcOut, immidiatepart, '0', rightAddSum, end1);
+
+	Adder2: adder_subtracter PORT MAP (pcOut, "00000000000000000000000000000100", '0', leftAddSum, end2);
+
+	rightAdderMux: BusMux2to1 PORT MAP (BranchEqNotEq, leftAddSum, rightAddSum, finWire);
+	
+			
+	
+end holistic;
